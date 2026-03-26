@@ -89,6 +89,8 @@ class DataProcessor:
             row["outcome"] = self._result_to_label(
                 home_goals=match["home_goals"], away_goals=match["away_goals"]
             )
+            row["home_goals"] = float(match["home_goals"])
+            row["away_goals"] = float(match["away_goals"])
             training_rows.append(row)
 
             self._append_match_to_history(histories, match)
