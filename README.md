@@ -85,5 +85,6 @@ Suggested Railway setup:
 4. Railway will use:
    - start command: `uvicorn api_server:app --host 0.0.0.0 --port $PORT`
    - healthcheck: `/health`
+5. The repo pins Python via [.python-version](/Users/joshua/Desktop/goborr-ai/.python-version) to avoid Railpack defaulting to Python `3.13`, which is too new for the current pinned scientific stack.
 
 If you deploy from a monorepo or non-root folder, Railway's docs note that the config file path must be set explicitly in the service settings.
