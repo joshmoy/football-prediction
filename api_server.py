@@ -3,7 +3,7 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from predictor_service import run_prediction
 
@@ -18,15 +18,17 @@ def _parse_origins(raw_value):
 
 
 class PredictionRequest(BaseModel):
-    data_source: str = "sample"
-    historical_matches: Optional[str] = None
-    upcoming_fixtures: Optional[str] = None
-    team_context: Optional[str] = None
+    model_config = ConfigDict(populate_by_name=True)
+
+    data_source: str = Field(default="sample", alias="dataSource")
+    historical_matches: Optional[str] = Field(default=None, alias="historicalMatches")
+    upcoming_fixtures: Optional[str] = Field(default=None, alias="upcomingFixtures")
+    team_context: Optional[str] = Field(default=None, alias="teamContext")
     gameweek: Optional[int] = None
-    future_gameweek_only: bool = False
-    competition_code: str = "PL"
-    api_token: Optional[str] = None
-    historical_seasons: Optional[str] = None
+    future_gameweek_only: bool = Field(default=False, alias="futureGameweekOnly")
+    competition_code: str = Field(default="PL", alias="competitionCode")
+    api_token: Optional[str] = Field(default=None, alias="apiToken")
+    historical_seasons: Optional[str] = Field(default=None, alias="historicalSeasons")
     season: Optional[int] = None
 
 

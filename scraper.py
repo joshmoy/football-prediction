@@ -83,10 +83,22 @@ class EPLScraper:
         payload = self._request_json(
             f"/competitions/{self.competition_code}/matches", params={"season": season}
         )
+        all_fixture_rows = [
+            self._normalise_api_fixture(match) for match in payload.get("matches", [])
+        ]
+
+        if gameweek is not None:
+            fixtures = pd.DataFrame(all_fixture_rows)
+            if fixtures.empty:
+                raise ValueError(
+                    "No fixtures were returned by football-data.org for the requested season."
+                )
+            return self._prepare_upcoming_fixtures(fixtures, gameweek=gameweek)
+
         fixture_rows = [
-            self._normalise_api_fixture(match)
-            for match in payload.get("matches", [])
-            if match.get("status") in self.UPCOMING_STATUSES
+            row
+            for row in all_fixture_rows
+            if row["status"] in self.UPCOMING_STATUSES
         ]
         fixtures = pd.DataFrame(fixture_rows)
         if fixtures.empty:
