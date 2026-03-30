@@ -1,6 +1,5 @@
 import math
 
-from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.linear_model import PoissonRegressor
 from sklearn.metrics import accuracy_score, log_loss, mean_absolute_error
 from sklearn.model_selection import train_test_split
@@ -9,13 +8,13 @@ from sklearn.preprocessing import StandardScaler
 
 
 class MatchPredictor:
-    OUTCOME_MAP = {0: "away_win", 1: "draw", 2: "home_win"}
-    MAX_GOALS = 6
+    OUTCOME_INDEX = {"away_win": 0, "draw": 1, "home_win": 2}
+    OUTCOME_LABELS = {0: "AWAY_WIN", 1: "DRAW", 2: "HOME_WIN"}
+    MAX_GOALS = 10
 
     def __init__(self, feature_columns, random_state=42):
         self.feature_columns = feature_columns
         self.random_state = random_state
-        self.outcome_model = GradientBoostingClassifier(random_state=random_state)
         self.home_goals_model = make_pipeline(
             StandardScaler(), PoissonRegressor(alpha=0.2, max_iter=2000)
         )
@@ -56,24 +55,29 @@ class MatchPredictor:
                 random_state=self.random_state,
                 stratify=y_outcome,
             )
-            self.outcome_model.fit(X_train, y_outcome_train)
             self.home_goals_model.fit(X_train, y_home_train)
             self.away_goals_model.fit(X_train, y_away_train)
 
-            valid_probabilities = self.outcome_model.predict_proba(X_valid)
-            valid_predictions = self.outcome_model.predict(X_valid)
             valid_home_goal_predictions = self._clip_goal_predictions(
                 self.home_goals_model.predict(X_valid)
             )
             valid_away_goal_predictions = self._clip_goal_predictions(
                 self.away_goals_model.predict(X_valid)
             )
+            valid_probability_rows = self._outcome_probability_rows(
+                valid_home_goal_predictions,
+                valid_away_goal_predictions,
+            )
+            valid_predictions = [
+                self._predicted_outcome_index(probability_row)
+                for probability_row in valid_probability_rows
+            ]
             self.validation_metrics = {
                 "accuracy": accuracy_score(y_outcome_valid, valid_predictions),
                 "log_loss": log_loss(
                     y_outcome_valid,
-                    valid_probabilities,
-                    labels=self.outcome_model.classes_,
+                    valid_probability_rows,
+                    labels=[0, 1, 2],
                 ),
                 "home_goals_mae": mean_absolute_error(
                     y_home_valid, valid_home_goal_predictions
@@ -84,84 +88,139 @@ class MatchPredictor:
                 "training_rows": len(training_df),
             }
 
-        self.outcome_model.fit(X, y_outcome)
         self.home_goals_model.fit(X, y_home_goals)
         self.away_goals_model.fit(X, y_away_goals)
         return self.validation_metrics
 
     def predict_fixtures(self, fixtures_df):
         X = fixtures_df[self.feature_columns].fillna(0.0)
-        probabilities = self.outcome_model.predict_proba(X)
-        outcome_probabilities = self._normalise_probabilities(probabilities)
         expected_home_goals = self._clip_goal_predictions(self.home_goals_model.predict(X))
         expected_away_goals = self._clip_goal_predictions(self.away_goals_model.predict(X))
+        score_distributions = [
+            self._joint_score_distribution(home_goals, away_goals)
+            for home_goals, away_goals in zip(expected_home_goals, expected_away_goals)
+        ]
+        outcome_probabilities = [
+            self._outcome_probabilities_from_distribution(distribution)
+            for distribution in score_distributions
+        ]
 
         results = fixtures_df[
             ["fixture_date", "gameweek", "home_team", "away_team"]
         ].copy()
-        results["home_win_probability"] = outcome_probabilities["home_win"]
-        results["draw_probability"] = outcome_probabilities["draw"]
-        results["away_win_probability"] = outcome_probabilities["away_win"]
-        results["expected_home_goals"] = expected_home_goals
-        results["expected_away_goals"] = expected_away_goals
-        results["predicted_outcome"] = results[
-            [
-                "home_win_probability",
-                "draw_probability",
-                "away_win_probability",
-            ]
-        ].idxmax(axis=1)
-        results["predicted_outcome"] = results["predicted_outcome"].map(
-            {
-                "home_win_probability": "HOME_WIN",
-                "draw_probability": "DRAW",
-                "away_win_probability": "AWAY_WIN",
-            }
-        )
-        results["model_confidence"] = results[
-            [
-                "home_win_probability",
-                "draw_probability",
-                "away_win_probability",
-            ]
-        ].max(axis=1)
+        results["home_win_probability"] = [
+            probabilities["home_win"] for probabilities in outcome_probabilities
+        ]
+        results["draw_probability"] = [
+            probabilities["draw"] for probabilities in outcome_probabilities
+        ]
+        results["away_win_probability"] = [
+            probabilities["away_win"] for probabilities in outcome_probabilities
+        ]
+        predicted_outcomes = [
+            self._predicted_outcome_name(probabilities)
+            for probabilities in outcome_probabilities
+        ]
+        results["predicted_outcome"] = [
+            self.OUTCOME_LABELS[self.OUTCOME_INDEX[outcome_name]]
+            for outcome_name in predicted_outcomes
+        ]
+        results["model_confidence"] = [
+            max(probabilities.values()) for probabilities in outcome_probabilities
+        ]
         scorelines = [
-            self._most_likely_scoreline(home_goals, away_goals)
-            for home_goals, away_goals in zip(expected_home_goals, expected_away_goals)
+            self._most_likely_scoreline_for_outcome(distribution, outcome_name)
+            for distribution, outcome_name in zip(score_distributions, predicted_outcomes)
         ]
         results["predicted_scoreline"] = [
             f"{home_goals}-{away_goals}" for home_goals, away_goals, _ in scorelines
+        ]
+        results["predicted_home_goals"] = [
+            home_goals for home_goals, _, _ in scorelines
+        ]
+        results["predicted_away_goals"] = [
+            away_goals for _, away_goals, _ in scorelines
         ]
         results["scoreline_probability"] = [
             probability for _, _, probability in scorelines
         ]
         return results.sort_values(["fixture_date", "home_team"]).reset_index(drop=True)
 
-    def _normalise_probabilities(self, probabilities):
-        probability_map = {name: [0.0] * len(probabilities) for name in self.OUTCOME_MAP.values()}
-        for class_index, class_label in enumerate(self.outcome_model.classes_):
-            outcome_name = self.OUTCOME_MAP[int(class_label)]
-            probability_map[outcome_name] = probabilities[:, class_index]
-        return probability_map
-
     def _clip_goal_predictions(self, values):
         return [max(float(value), 0.05) for value in values]
 
-    def _most_likely_scoreline(self, expected_home_goals, expected_away_goals):
-        best_home_goals = 0
-        best_away_goals = 0
-        best_probability = -1.0
+    def _outcome_probability_rows(self, expected_home_goals, expected_away_goals):
+        probability_rows = []
+        for home_goals, away_goals in zip(expected_home_goals, expected_away_goals):
+            outcome_probabilities = self._outcome_probabilities_from_distribution(
+                self._joint_score_distribution(home_goals, away_goals)
+            )
+            probability_rows.append(
+                [
+                    outcome_probabilities["away_win"],
+                    outcome_probabilities["draw"],
+                    outcome_probabilities["home_win"],
+                ]
+            )
+        return probability_rows
 
+    def _predicted_outcome_name(self, outcome_probabilities):
+        return max(
+            outcome_probabilities,
+            key=lambda outcome_name: outcome_probabilities[outcome_name],
+        )
+
+    def _predicted_outcome_index(self, probability_row):
+        best_index = max(range(len(probability_row)), key=lambda index: probability_row[index])
+        return best_index
+
+    def _joint_score_distribution(self, expected_home_goals, expected_away_goals):
+        distribution = []
+        total_probability = 0.0
         for home_goals in range(self.MAX_GOALS + 1):
             home_probability = self._poisson_pmf(home_goals, expected_home_goals)
             for away_goals in range(self.MAX_GOALS + 1):
                 probability = home_probability * self._poisson_pmf(
                     away_goals, expected_away_goals
                 )
-                if probability > best_probability:
-                    best_home_goals = home_goals
-                    best_away_goals = away_goals
-                    best_probability = probability
+                distribution.append((home_goals, away_goals, probability))
+                total_probability += probability
+
+        if total_probability <= 0.0:
+            raise ValueError("Joint score distribution could not be normalised.")
+
+        return [
+            (home_goals, away_goals, probability / total_probability)
+            for home_goals, away_goals, probability in distribution
+        ]
+
+    def _outcome_probabilities_from_distribution(self, distribution):
+        probabilities = {"home_win": 0.0, "draw": 0.0, "away_win": 0.0}
+        for home_goals, away_goals, probability in distribution:
+            if home_goals > away_goals:
+                probabilities["home_win"] += probability
+            elif home_goals == away_goals:
+                probabilities["draw"] += probability
+            else:
+                probabilities["away_win"] += probability
+        return probabilities
+
+    def _most_likely_scoreline_for_outcome(self, distribution, outcome_name):
+        best_home_goals = 0
+        best_away_goals = 0
+        best_probability = -1.0
+
+        for home_goals, away_goals, probability in distribution:
+            if outcome_name == "home_win" and home_goals <= away_goals:
+                continue
+            if outcome_name == "draw" and home_goals != away_goals:
+                continue
+            if outcome_name == "away_win" and home_goals >= away_goals:
+                continue
+            if probability > best_probability:
+                best_home_goals = home_goals
+                best_away_goals = away_goals
+                best_probability = probability
 
         return best_home_goals, best_away_goals, best_probability
 

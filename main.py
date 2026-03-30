@@ -62,6 +62,26 @@ def build_parser():
         help="Season start year for upcoming API fixtures. Defaults to the current football-data.org season.",
     )
     parser.add_argument(
+        "--disable-gemini-context",
+        action="store_true",
+        help="Skip Gemini enrichment and use only CSV/API football data.",
+    )
+    parser.add_argument(
+        "--gemini-api-key",
+        default=None,
+        help="Gemini API key. Falls back to GEMINI_API_KEY or GOOGLE_API_KEY.",
+    )
+    parser.add_argument(
+        "--gemini-model",
+        default=None,
+        help="Optional Gemini model override for live context enrichment.",
+    )
+    parser.add_argument(
+        "--gemini-context-output",
+        default=None,
+        help="Optional path to save the Gemini-generated team context CSV. Defaults to artifacts/gemini_context/...",
+    )
+    parser.add_argument(
         "--output",
         choices=["text", "json"],
         default="text",
@@ -86,6 +106,10 @@ def main():
             api_token=args.api_token,
             historical_seasons=args.historical_seasons,
             season=args.season,
+            use_gemini_context=not args.disable_gemini_context,
+            gemini_api_key=args.gemini_api_key,
+            gemini_model=args.gemini_model,
+            gemini_context_output_path=args.gemini_context_output,
         )
 
         if args.output == "json":

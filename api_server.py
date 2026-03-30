@@ -30,6 +30,12 @@ class PredictionRequest(BaseModel):
     api_token: Optional[str] = Field(default=None, alias="apiToken")
     historical_seasons: Optional[str] = Field(default=None, alias="historicalSeasons")
     season: Optional[int] = None
+    use_gemini_context: bool = Field(default=True, alias="useGeminiContext")
+    gemini_api_key: Optional[str] = Field(default=None, alias="geminiApiKey")
+    gemini_model: Optional[str] = Field(default=None, alias="geminiModel")
+    gemini_context_output_path: Optional[str] = Field(
+        default=None, alias="geminiContextOutputPath"
+    )
 
 
 app = FastAPI(title="Goborr Predictor API", version="0.1.0")
@@ -61,6 +67,10 @@ def predict(request: PredictionRequest):
             api_token=request.api_token,
             historical_seasons=request.historical_seasons,
             season=request.season,
+            use_gemini_context=request.use_gemini_context,
+            gemini_api_key=request.gemini_api_key,
+            gemini_model=request.gemini_model,
+            gemini_context_output_path=request.gemini_context_output_path,
         )
         return payload
     except Exception as exc:
