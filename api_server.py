@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 
+from goborr_client import GoborrClient
 from predictor_service import run_prediction
 
 
@@ -36,6 +37,16 @@ class PredictionRequest(BaseModel):
     gemini_context_output_path: Optional[str] = Field(
         default=None, alias="geminiContextOutputPath"
     )
+
+
+class GoborrPublishRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    round_number: int = Field(alias="roundNumber")
+    home_team: str = Field(alias="homeTeam")
+    away_team: str = Field(alias="awayTeam")
+    home_score: int = Field(alias="homeScore")
+    away_score: int = Field(alias="awayScore")
 
 
 app = FastAPI(title="Goborr Predictor API", version="0.1.0")
@@ -73,5 +84,20 @@ def predict(request: PredictionRequest):
             gemini_context_output_path=request.gemini_context_output_path,
         )
         return payload
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/goborr/publish")
+def publish_to_goborr(request: GoborrPublishRequest):
+    try:
+        client = GoborrClient()
+        return client.publish_prediction(
+            round_number=request.round_number,
+            home_team=request.home_team,
+            away_team=request.away_team,
+            home_score=request.home_score,
+            away_score=request.away_score,
+        )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
