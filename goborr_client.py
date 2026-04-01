@@ -123,9 +123,17 @@ class GoborrClient:
         aliases = {
             "manchester city": "man city",
             "manchester united": "man utd",
+            "newcastle united": "newcastle",
+            "tottenham": "spurs",
             "tottenham hotspur": "spurs",
+            "wolverhampton": "wolves",
             "wolverhampton wanderers": "wolves",
             "nottingham forest": "nott'm forest",
+            "west ham united": "west ham",
+            "brighton & hove albion": "brighton",
+            "ipswich town": "ipswich",
+            "leicester city": "leicester",
+            "leeds united": "leeds",
         }
         normalised = " ".join(str(team_name or "").lower().strip().split())
         return aliases.get(normalised, normalised)
